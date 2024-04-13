@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <assert.h>
 #include <string.h>
+#include <signal.h>
 #include "mf.h"
 
 
@@ -11,20 +12,32 @@
 // it will call mf_destroy()
 //
 
-int
-main(int argc, char *argv[])
-{
-    
-    printf ("mfserver pid=%d\n", (int) getpid());
-    
-    // register the signal handler function
-    
-    
-    mf_init(); // will read the config file
-    
-    while (1)
-        sleep(1000);
-    
-    exit(0);
+
+static void signal_handler(int signo) {
+    if (signo == SIGINT || signo == SIGTERM) {
+        printf("Received signal %d, cleaning up...\n", signo);
+        mf_destroy();
+        exit(0);
+    }
 }
 
+int main(int argc, char *argv[]) {
+    printf("mfserver pid=%d\n", (int)getpid());
+
+    // Register signal handler
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    // Initialize the MF library
+    if (mf_init() != 0) {
+        fprintf(stderr, "Error initializing MF library\n");
+        exit(1);
+    }
+
+    // Server main loop
+    while (1) {
+        sleep(1000);
+    }
+
+    return 0;
+}
