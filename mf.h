@@ -28,6 +28,16 @@
 #define MAX_MQNAMESIZE 128
 // max message queue name size
 
+typedef struct {
+    char name[MAX_MQNAMESIZE];  // Name of the message queue
+    int size;                    // Size of the queue buffer (in bytes)
+    int head;                    // Head pointer (for dequeue/recv)
+    int tail;                    // Tail pointer (for enqueue/send)
+    int count;                   // Number of messages currently in the queue
+    char buffer[1];              // Flexible array member for the queue buffer
+    int in;                      // Index for enqueue/send
+    int out;                     // Index for dequeue/recv
+} mf_queue_t;
 
 int mf_init();
 int mf_destroy();

@@ -74,8 +74,16 @@ int mf_init() {
     // Initialize shared memory layout
     shmem_metadata = (shmem_metadata_t *)shmem_addr;
     shmem_metadata->num_queues = 0;
-    // Initialize other metadata fields as needed
-
+    
+    // Initialize the default message queue
+    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t));
+    queue->size = max_msgs_in_queue * MAX_DATALEN;
+    strcpy(queue->name, "default_queue");
+    queue->head = 0;
+    queue->tail = 0;
+    queue->count = 0;
+    queue->in = 0;
+    queue->out = 0;
     // Create synchronization objects (semaphores or mutexes)
     semaphore_id = sem_open("/mf_semaphore", O_CREAT, 0666, 1);
     if (semaphore_id == SEM_FAILED) {
@@ -145,16 +153,67 @@ int mf_close(int qid)
 }
 
 
-int mf_send (int qid, void *bufptr, int datalen)
-{
-    printf ("mf_send called\n");
-    return (0);
-}
+int mf_send(int qid, void *bufptr, int datalen) {
+    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t));
 
-int mf_recv (int qid, void *bufptr, int bufsize)
-{
-    printf ("mf_recv called\n");
-    return (0);
+    // Acquire the semaphore or lock
+    sem_wait(semaphore_id);
+
+    // Check if there's space in the buffer
+    if (queue->count == queue->size) {
+        // Buffer is full, handle the error or block
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    // Copy the message data into the buffer
+    memcpy(queue->buffer + queue->in, bufptr, datalen);
+
+    // Update the indices and count
+    queue->in = (queue->in + datalen) % queue->size;
+    queue->count += datalen;
+
+    // Release the semaphore or lock
+    sem_post(semaphore_id);
+
+    return 0;
+}
+  
+
+int mf_recv(int qid, void *bufptr, int bufsize) {
+    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t));
+
+    // Acquire the semaphore or lock
+    sem_wait(semaphore_id);
+
+    // Check if there are messages in the buffer
+    if (queue->count == 0) {
+        // Buffer is empty, handle the error or block
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    // Calculate the message length
+    int msg_len = queue->buffer[queue->out];
+
+    // Check if the provided buffer size is sufficient
+    if (bufsize < msg_len) {
+        // Buffer size is too small, handle the error
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    // Copy the message data from the buffer
+    memcpy(bufptr, queue->buffer + queue->out + sizeof(int), msg_len);
+
+    // Update the indices and count
+    queue->out = (queue->out + msg_len + sizeof(int)) % queue->size;
+    queue->count -= msg_len + sizeof(int);
+
+    // Release the semaphore or lock
+    sem_post(semaphore_id);
+
+    return msg_len;
 }
 
 int mf_print()
