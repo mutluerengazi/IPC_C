@@ -121,36 +121,149 @@ int mf_destroy() {
 
     return 0; // Success
 }
-int mf_connect()
-{
-    return (0);
-}
-   
-int mf_disconnect()
-{
-    return (0);
+int mf_connect() {
+    // Read the configuration file
+    if (mf_init() != 0) {
+        return -1;
+    }
+
+    return 0;
 }
 
-int mf_create(char *mqname, int mqsize)
-{
-    return (0);
+int mf_disconnect() {
+    // Clean up resources and shared memory
+    if (mf_destroy() != 0) {
+        return -1;
+    }
+
+    return 0;
 }
 
-int mf_remove(char *mqname)
-{
-    return (0);
+int mf_create(char *mqname, int mqsize) {
+    // Acquire the semaphore
+    sem_wait(semaphore_id);
+
+    // Check if there's enough space in shared memory for a new queue
+    if (shmem_metadata->num_queues == max_queues_in_shmem) {
+        sem_post(semaphore_id);
+        return -1; // No more space for new queues
+    }
+
+    // Calculate the offset for the new queue
+    size_t offset = sizeof(shmem_metadata_t) + (shmem_metadata->num_queues * sizeof(mf_queue_t));
+
+    // Create a new queue
+    mf_queue_t *new_queue = (mf_queue_t *)((char *)shmem_addr + offset);
+    strcpy(new_queue->name, mqname);
+    new_queue->size = mqsize * MAX_DATALEN;
+    new_queue->head = 0;
+    new_queue->tail = 0;
+    new_queue->count = 0;
+    new_queue->in = 0;
+    new_queue->out = 0;
+
+    // Increment the number of queues
+    shmem_metadata->num_queues++;
+
+    // Release the semaphore
+    sem_post(semaphore_id);
+
+    return 0;
 }
 
+int mf_remove(char *mqname) {
+    // Acquire the semaphore
+    sem_wait(semaphore_id);
 
-int mf_open(char *mqname)
-{
-    return (0);
+    // Find the queue to remove
+    mf_queue_t *queue_to_remove = NULL;
+    size_t offset = sizeof(shmem_metadata_t);
+    for (int i = 0; i < shmem_metadata->num_queues; i++) {
+        mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + offset);
+        if (strcmp(queue->name, mqname) == 0) {
+            queue_to_remove = queue;
+            break;
+        }
+        offset += sizeof(mf_queue_t);
+    }
+
+    // If the queue is not found, return an error
+    if (queue_to_remove == NULL) {
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    // Check if the queue is still in use (reference count > 0)
+    // Implement the reference count checking logic here
+
+    // Remove the queue by shifting the remaining queues in memory
+    size_t remaining_bytes = (char *)shmem_addr + shmem_size - (char *)queue_to_remove - sizeof(mf_queue_t);
+    memmove(queue_to_remove, (char *)queue_to_remove + sizeof(mf_queue_t), remaining_bytes);
+
+    // Decrement the number of queues
+    shmem_metadata->num_queues--;
+
+    // Release the semaphore
+    sem_post(semaphore_id);
+
+    return 0;
 }
 
-int mf_close(int qid)
-{
-    return(0);
+int mf_open(char *mqname) {
+    // Acquire the semaphore
+    sem_wait(semaphore_id);
+
+    // Find the queue with the given name
+    mf_queue_t *queue = NULL;
+    size_t offset = sizeof(shmem_metadata_t);
+    for (int i = 0; i < shmem_metadata->num_queues; i++) {
+        queue = (mf_queue_t *)((char *)shmem_addr + offset);
+        if (strcmp(queue->name, mqname) == 0) {
+            break;
+        }
+        offset += sizeof(mf_queue_t);
+    }
+
+    // If the queue is not found, return an error
+    if (queue == NULL) {
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    // Increment the reference count for the queue
+    // Implement the reference count incrementing logic here
+
+    // Release the semaphore
+    sem_post(semaphore_id);
+
+    // Return the queue ID (index of the queue in shared memory)
+    return (int)(offset - sizeof(shmem_metadata_t)) / sizeof(mf_queue_t);
 }
+
+int mf_close(int qid) {
+    // Acquire the semaphore
+    sem_wait(semaphore_id);
+
+    // Calculate the offset of the queue based on the queue ID
+    size_t offset = sizeof(shmem_metadata_t) + qid * sizeof(mf_queue_t);
+
+    // Check if the queue ID is valid
+    if (offset >= shmem_size || offset < sizeof(shmem_metadata_t)) {
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + offset);
+
+    // Decrement the reference count for the queue
+    // Implement the reference count decrementing logic here
+
+    // Release the semaphore
+    sem_post(semaphore_id);
+
+    return 0;
+}
+
 
 
 int mf_send(int qid, void *bufptr, int datalen) {
