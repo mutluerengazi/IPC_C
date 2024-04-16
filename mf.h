@@ -26,18 +26,24 @@
 // max file or shared memory name
 
 #define MAX_MQNAMESIZE 128
-// max message queue name size
+// max message queue name sizewhy
+#include <semaphore.h>
 
 typedef struct {
-    char name[MAX_MQNAMESIZE];  // Name of the message queue
-    int size;                    // Size of the queue buffer (in bytes)
-    int head;                    // Head pointer (for dequeue/recv)
-    int tail;                    // Tail pointer (for enqueue/send)
-    int count;                   // Number of messages currently in the queue
-    char buffer[1];              // Flexible array member for the queue buffer
-    int in;                      // Index for enqueue/send
-    int out;                     // Index for dequeue/recv
+    char name[MAX_MQNAMESIZE];     // Name of the message queue
+    int size;                      // Size of the queue buffer (in bytes)
+    int in;                        // Index for next enqueue (write)
+    int out;                       // Index for next dequeue (read)
+    sem_t *sem_enqueue;             // Semaphore for enqueue operations
+    sem_t *sem_dequeue;             // Semaphore for dequeue operations
+    sem_t *mutex;                   // Mutex for accessing queue state
+    int ref_count;                 // Reference count for open/close operations
+    char buffer[];                 // Flexible array member for the queue buffer
 } mf_queue_t;
+
+extern void *global_shmem_addr;  // Pointer to the shared memory
+extern int global_shmem_size;    // Size of the shared memory
+extern int shm_fd;  
 
 int mf_init();
 int mf_destroy();

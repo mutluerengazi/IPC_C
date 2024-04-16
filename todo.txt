@@ -1,0 +1,5 @@
+1. mf init
+    a. shmem 
+    b. semaphores
+    c. ...
+2. 

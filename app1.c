@@ -43,46 +43,45 @@ main(int argc, char **argv)
         // parent will create a message queue
         
         mf_connect();
-        mf_create(mqname1, 16); // Create a message queue with size 16 KB
+        
+        mf_create (mqname1, 16); //  create mq;  16 KB
+        
         qid = mf_open(mqname1);
-
-        sem_post(sem1);
-
-        for (int i = 0; i < totalcount; i++) {
+        
+        sem_post (sem1);
+        
+        while (1) {
             n_sent = rand() % MAX_DATALEN;
-            sprintf(sendbuffer, "Message %d", i); // Example message
-            ret = mf_send(qid, sendbuffer, n_sent + 1); // Include null terminator
-            if (ret == 0) {
-                printf("Parent sent message: %s (length: %d)\n", sendbuffer, n_sent + 1);
-            } else {
-                printf("Error sending message\n");
-            }
+            ret = mf_send (qid, (void *) sendbuffer, n_sent);
+            printf ("app sent message, datalen=%d\n", n_sent);
+            sentcount++;
+            if (sentcount == totalcount)
+                break;
         }
-
         mf_close(qid);
         sem_wait(sem2);
-
-        mf_remove(mqname1); // Remove the message queue
+        // we are sure other process received the messages
+        
+        mf_remove(mqname1);   // remove mq
         mf_disconnect();
     }
     else if (ret == 0) {
         // child process - P2
         // child will connect, open mq, use mq
-        sem_wait(sem1); // Wait for the parent to create the message queue
-
+        sem_wait (sem1);
+        // we are sure mq was created
+        
         mf_connect();
+        
         qid = mf_open(mqname1);
-
-        for (int i = 0; i < totalcount; i++) {
-            memset(recvbuffer, 0, sizeof(recvbuffer));
-            n_received = mf_recv(qid, recvbuffer, MAX_DATALEN);
-            if (n_received > 0) {
-                printf("Child received message: %s (length: %d)\n", recvbuffer, n_received);
-            } else {
-                printf("Error receiving message\n");
-            }
+        
+        while (1) {
+            n_received =  mf_recv (qid, (void *) recvbuffer, MAX_DATALEN);
+            printf ("app received message, datalen=%d\n", n_received);
+            receivedcount++;
+            if (receivedcount == totalcount)
+                break;
         }
-
         mf_close(qid);
         mf_disconnect();
         sem_post(sem2);
