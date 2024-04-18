@@ -44,7 +44,7 @@ typedef struct {
 extern void *global_shmem_addr;  // Pointer to the shared memory
 extern int global_shmem_size;    // Size of the shared memory
 extern int shm_fd;  
-
+static sem_t *semaphore_id;
 int mf_init();
 int mf_destroy();
 int mf_connect();

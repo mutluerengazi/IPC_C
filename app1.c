@@ -9,7 +9,6 @@
 #include <sys/mman.h>
 #include <time.h>
 #include "mf.h"
-
 #define COUNT 10
 char *semname1 = "/semaphore1";
 char *semname2 = "/semaphore2";
@@ -36,7 +35,7 @@ main(int argc, char **argv)
 
     srand(time(0));
     printf ("RAND_MAX is %d\n", RAND_MAX);
-    
+    semaphore_id = sem_open("/global_semaphore", 0);
     ret = fork();
     if (ret > 0) {
         // parent process - P1

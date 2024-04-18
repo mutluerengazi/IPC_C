@@ -17,7 +17,7 @@ static int shmem_size;
 static int max_msgs_in_queue;
 static int max_queues_in_shmem;
 static void *shmem_addr;
-static sem_t *semaphore_id;
+
 void *global_shmem_addr = NULL;  // Initialize pointer to NULL
 int global_shmem_size = 0;       // Initialize size to 0
 int shm_fd = -1;                 // Initialize file descriptor to invalid value
@@ -88,7 +88,7 @@ int mf_init() {
     // Initialize shared memory layout
     shmem_metadata = (shmem_metadata_t *)shmem_addr;
     shmem_metadata->num_queues = max_queues_in_shmem;
-
+    semaphore_id = sem_open("/global_semaphore", O_CREAT, 0644, 1);
     // Initialize all message queues within the allocated shared memory
     mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t));
     for (int i = 0; i < max_queues_in_shmem; i++) {
@@ -142,6 +142,7 @@ int mf_destroy() {
 }
 
 int mf_connect() {
+    printf ("mf connect starts..\n");
     FILE *config_file = fopen(CONFIG_FILENAME, "r");
     if (config_file == NULL) {
         perror("Error opening config file");
@@ -170,7 +171,7 @@ int mf_connect() {
     }
 
     fclose(config_file);
-
+    semaphore_id = sem_open("/global_semaphore", 0);
     // Check if required configuration is retrieved
     if (shmem_name[0] == '\0' || shmem_size == 0) {
         fprintf(stderr, "Configuration incomplete or invalid.\n");
@@ -193,7 +194,7 @@ int mf_connect() {
     // Optionally store the shared memory address in a global or static variable if needed elsewhere
     // For example:
     // global_shmem_addr = shmem_addr;
-
+    printf ("mf connect ends..\n");
     return 0;
 }
 
@@ -225,9 +226,11 @@ int mf_disconnect() {
 
 
 int mf_create(char *mqname, int mqsize) {
+    printf ("mf create starts..\n");
     // Acquire the global semaphore to ensure exclusive access to queue metadata
+    printf ("mf create sem wait..\n");
     sem_wait(semaphore_id);
-
+    printf ("mf create sem ends..\n");
     // Check if there's enough space in shared memory for a new queue
     if (shmem_metadata->num_queues >= max_queues_in_shmem) {
         sem_post(semaphore_id);
@@ -271,7 +274,7 @@ int mf_create(char *mqname, int mqsize) {
 
     // Release the global semaphore
     sem_post(semaphore_id);
-
+    printf ("mf create ends..\n");
     return 0;
 }
 
