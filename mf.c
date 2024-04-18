@@ -105,7 +105,7 @@ int mf_init() {
             return -1; // Semaphore initialization failed
         }
     }
-
+    sem_post(semaphore_id);
     return 0; // Success
 }
 
@@ -191,9 +191,7 @@ int mf_connect() {
         return -1;
     }
 
-    // Optionally store the shared memory address in a global or static variable if needed elsewhere
-    // For example:
-    // global_shmem_addr = shmem_addr;
+    shmem_metadata = (shmem_metadata_t *)shmem_addr;
     printf ("mf connect ends..\n");
     return 0;
 }
@@ -228,9 +226,33 @@ int mf_disconnect() {
 int mf_create(char *mqname, int mqsize) {
     printf ("mf create starts..\n");
     // Acquire the global semaphore to ensure exclusive access to queue metadata
+    // Initialization of shared memory and shmem_metadata
+    if (shmem_addr == MAP_FAILED) {
+        perror("Error mapping shared memory");
+        shm_unlink(shmem_name); // Cleanup on failure
+        return -1;
+    }
+    if (shmem_metadata == NULL) {
+        fprintf(stderr, "Failed to allocate metadata\n");
+        return -1;
+    }
+    shmem_metadata->num_queues = 0; // Proper initialization
+
     printf ("mf create sem wait..\n");
+    
     sem_wait(semaphore_id);
     printf ("mf create sem ends..\n");
+
+    if (shmem_metadata == NULL) {
+        fprintf(stderr, "shmem_metadata is not initialized\n");
+        sem_post(semaphore_id);
+        return -1;
+    }
+
+    if (shmem_metadata->num_queues >= max_queues_in_shmem) {
+        sem_post(semaphore_id);
+        return -1; // No more space for new queues
+    }
     // Check if there's enough space in shared memory for a new queue
     if (shmem_metadata->num_queues >= max_queues_in_shmem) {
         sem_post(semaphore_id);
@@ -379,39 +401,43 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return -1;  // Invalid queue ID
     }
 
-    // Calculate the actual queue address based on qid
     mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t) + qid * sizeof(mf_queue_t));
 
-    // Wait for space to become available in the queue
-    sem_wait(queue->sem_enqueue);  // Corrected
+    sem_wait(queue->sem_enqueue);  // Wait for space to become available in the queue
+    sem_wait(queue->mutex);  // Acquire mutex to ensure exclusive access to queue modifications
 
-    // Acquire mutex to ensure exclusive access to queue modifications
-    sem_wait(queue->mutex);  // Corrected
-
+    // Calculate the next position in the buffer after the message is added
+    int total_data_len = datalen + sizeof(int); // Total data length including the size of the length field
+    int next_in = (queue->in + total_data_len) % queue->size;
+    
     // Check if there is enough space to add the new message
-    int next_in = (queue->in + datalen) % queue->size;
-    if (datalen > queue->size || ((queue->in < queue->out) && (next_in >= queue->out)) ||
-        ((queue->in > queue->out) && (next_in > queue->in && next_in < queue->out))) {
-        // Not enough space, need to handle this situation appropriately
-        sem_post(queue->mutex);  // Corrected
-        sem_post(queue->sem_enqueue);  // Corrected, Release the enqueue semaphore since we are not enqueueing
+    if (total_data_len > queue->size || ((queue->in < queue->out) && (next_in >= queue->out)) ||
+        ((queue->in >= queue->out) && (next_in < queue->in))) {
+        sem_post(queue->mutex);  // Release mutex
+        sem_post(queue->sem_enqueue);  // Release the enqueue semaphore since we are not enqueueing
         return -1;
     }
 
-    // Copy the message data into the buffer
-    memcpy(queue->buffer + queue->in, bufptr, datalen);
+    // Store the message length at the current 'in' position
+    memcpy(queue->buffer + queue->in, &datalen, sizeof(int));
+    queue->in = (queue->in + sizeof(int)) % queue->size;
 
-    // Update the input index and possibly wrap around
+    // Store the message data
+    if (queue->in + datalen <= queue->size) { // No wrap-around
+        memcpy(queue->buffer + queue->in, bufptr, datalen);
+    } else { // Handle wrap-around
+        int first_part_size = queue->size - queue->in;
+        memcpy(queue->buffer + queue->in, bufptr, first_part_size);
+        memcpy(queue->buffer, (char*)bufptr + first_part_size, datalen - first_part_size);
+    }
     queue->in = next_in;
 
-    // Release the mutex
-    sem_post(queue->mutex);  // Corrected
-
-    // Signal that there is a new item in the queue
-    sem_post(queue->sem_dequeue);  // Corrected
+    sem_post(queue->mutex);  // Release mutex
+    sem_post(queue->sem_dequeue);  // Signal that a new item is available in the queue
 
     return 0;
 }
+
 
 
 int mf_recv(int qid, void *bufptr, int bufsize) {
@@ -419,51 +445,40 @@ int mf_recv(int qid, void *bufptr, int bufsize) {
         return -1;  // Invalid queue ID
     }
 
-    // Calculate the actual queue address based on qid
     mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t) + qid * sizeof(mf_queue_t));
 
-    // Wait for a message to become available
-    sem_wait(queue->sem_dequeue);
+    sem_wait(queue->sem_dequeue);  // Wait for a message to become available
+    sem_wait(queue->mutex);  // Acquire mutex to ensure exclusive access
 
-    // Acquire mutex to ensure exclusive access to queue modifications
-    sem_wait(queue->mutex);
-
-    // Determine the size of the next message
+    // Read the message length
     int msg_len;
-    // Assuming message length is stored at the position 'out'
     memcpy(&msg_len, queue->buffer + queue->out, sizeof(int));
+    queue->out = (queue->out + sizeof(int)) % queue->size;
 
     // Check if the provided buffer size is sufficient
     if (bufsize < msg_len) {
         sem_post(queue->mutex); // Release mutex
-        sem_post(queue->sem_dequeue); // Message still in queue, re-signal it
+        sem_post(queue->sem_dequeue); // Re-signal the dequeue semaphore
         return -1;
     }
 
-    // Calculate the start position of the message data in the buffer
-    int data_pos = (queue->out + sizeof(int)) % queue->size;
-
-    // Copy the message data from the buffer
-    if (data_pos + msg_len <= queue->size) {
+    // Read the message data
+    int data_pos = queue->out;
+    if (data_pos + msg_len <= queue->size) { // No wrap-around
         memcpy(bufptr, queue->buffer + data_pos, msg_len);
-    } else {
-        // Handle wrap-around case
+    } else { // Handle wrap-around
         int first_part_size = queue->size - data_pos;
         memcpy(bufptr, queue->buffer + data_pos, first_part_size);
         memcpy((char*)bufptr + first_part_size, queue->buffer, msg_len - first_part_size);
     }
+    queue->out = (queue->out + msg_len) % queue->size;
 
-    // Update the out index and wrap around if necessary
-    queue->out = (queue->out + sizeof(int) + msg_len) % queue->size;
-
-    // Release the mutex
-    sem_post(queue->mutex);
-
-    // Signal that there is now more space available in the queue
-    sem_post(queue->sem_enqueue);
+    sem_post(queue->mutex);  // Release the mutex
+    sem_post(queue->sem_enqueue);  // Signal that there is now more space available
 
     return msg_len;
 }
+
 
 
 int mf_print()

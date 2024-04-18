@@ -9,7 +9,7 @@
 #include <sys/mman.h>
 #include <time.h>
 #include "mf.h"
-#define COUNT 10
+#define COUNT 5
 char *semname1 = "/semaphore1";
 char *semname2 = "/semaphore2";
 sem_t *sem1, *sem2;
@@ -22,14 +22,15 @@ main(int argc, char **argv)
     char sendbuffer[MAX_DATALEN];
     int n_sent, n_received;
     char recvbuffer[MAX_DATALEN];
-    int sentcount;
-    int receivedcount;
+    int sentcount = 0;
+    int receivedcount= 0;
     int totalcount;
-    
+    /*
     totalcount = COUNT;
     if (argc == 2)
         totalcount = atoi(argv[1]);
-
+    */
+    totalcount = 10;
     sem1 = sem_open(semname1, O_CREAT, 0666, 0); // init sem
     sem2 = sem_open(semname2, O_CREAT, 0666, 0); // init sem
 
@@ -53,6 +54,7 @@ main(int argc, char **argv)
             n_sent = rand() % MAX_DATALEN;
             ret = mf_send (qid, (void *) sendbuffer, n_sent);
             printf ("app sent message, datalen=%d\n", n_sent);
+            printf("sentcount = %d \n", sentcount);
             sentcount++;
             if (sentcount == totalcount)
                 break;
@@ -69,7 +71,7 @@ main(int argc, char **argv)
         // child will connect, open mq, use mq
         sem_wait (sem1);
         // we are sure mq was created
-        
+        printf ("child passed first wait (sem1)");
         mf_connect();
         
         qid = mf_open(mqname1);
