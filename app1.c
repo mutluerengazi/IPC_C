@@ -71,11 +71,11 @@ main(int argc, char **argv)
         // child will connect, open mq, use mq
         sem_wait (sem1);
         // we are sure mq was created
-        printf ("child passed first wait (sem1)");
+        printf ("child passed first wait (sem1) \n");
         mf_connect();
         
         qid = mf_open(mqname1);
-        
+        printf("child passed mf_open\n");
         while (1) {
             n_received =  mf_recv (qid, (void *) recvbuffer, MAX_DATALEN);
             printf ("app received message, datalen=%d\n", n_received);
