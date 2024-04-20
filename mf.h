@@ -1,6 +1,6 @@
 #ifndef _MF_H_
 #define _MF_H_
-#define min(a, b) ((a) < (b) ? (a) : (b))
+#define min(a, b) ((a) < (b) ? (a) : (b)) // for min operatioins
 
 //You should not change this file. It is the interface of the MF library.
 
@@ -35,7 +35,7 @@ typedef struct {
     int size;                      // Size of the queue buffer (in bytes)
     int in;                        // Index for next enqueue (write)
     int out;                       // Index for next dequeue (read)
-   int ref_count;                 // Reference count for open/close operations
+    int ref_count;                 // Reference count for open/close operations
     char buffer[];                 // Flexible array member for the queue buffer
 } mf_queue_t;
 

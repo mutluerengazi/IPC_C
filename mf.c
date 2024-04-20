@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <semaphore.h>
 #include "mf.h"
-#include <ctype.h> // for isspace and isdigit functions
+#include <ctype.h> 
 
 // Global variables to store configuration and shared memory information
 static char shmem_name[MAXFILENAME] = "";  // initialized to empty string
@@ -19,9 +19,9 @@ static int max_queues_in_shmem;
 static void *shmem_addr = NULL;  // pointer initialization to NULL
 static sem_t *semaphore_id = NULL; 
 
-void *global_shmem_addr = NULL;  // Initialize pointer to NULL
-int global_shmem_size = 0;       // Initialize size to 0
-int shm_fd = -1;                 // Initialize file descriptor to invalid value
+void *global_shmem_addr = NULL;  // initialize pointer to NULL
+int global_shmem_size = 0;       // initialize size to 0
+int shm_fd = -1;                 // initialize file descriptor to invalid value
 
 
 shmem_metadata_t *shmem_metadata;
@@ -34,44 +34,44 @@ int mf_init() {
     }
 
     char line[256], key[256], value[256];
-    char local_shmem_name[256];  // Use a local variable to avoid global conflicts
-    int local_shmem_size = 0;    // Local variable to hold the shared memory size
-    int local_max_queues = 0;    // Local variable to hold the max number of queues
+    char local_shmem_name[256];  // use a local variable to avoid global conflicts
+    int local_shmem_size = 0;    // local variable to hold the shared memory size
+    int local_max_queues = 0;    // local variable to hold the max number of queues
 
-    // Reading configuration parameters
+    // reading configuration parameters
     while (fgets(line, sizeof(line), config_file)) {
-        if (line[0] == '#' || isspace(line[0])) continue;  // Ignore comments and blank lines
+        if (line[0] == '#' || isspace(line[0])) continue;  // ignore comments and blank lines
         
         if (sscanf(line, "%s %s", key, value) != 2) {
             fprintf(stderr, "Malformed line in config file: %s", line);
-            continue;  // Skip malformed lines
+            continue;  
         }
 
         if (strcmp(key, "SHMEM_NAME") == 0) {
             strncpy(local_shmem_name, value, sizeof(local_shmem_name) - 1);
             local_shmem_name[sizeof(local_shmem_name) - 1] = '\0';
         } else if (strcmp(key, "SHMEM_SIZE") == 0) {
-            local_shmem_size = atoi(value) * 1024;  // Convert KB to bytes
+            local_shmem_size = atoi(value) * 1024;  // convert KB to bytes
         } else if (strcmp(key, "MAX_QUEUES_IN_SHMEM") == 0) {
-            local_max_queues = atoi(value);  // Read maximum number of queues
+            local_max_queues = atoi(value);  // read maximum number of queues
         }
     }
     fclose(config_file);
 
-    // Ensure all necessary configuration parameters were successfully read
+    // ensure all necessary configuration parameters were successfully read
     if (local_shmem_name[0] == '\0' || local_shmem_size <= 0 || local_max_queues <= 0) {
         fprintf(stderr, "Configuration incomplete or invalid.\n");
         return -1;
     }
 
-    // Create or open the shared memory object
+    // create or open the shared memory object
     shm_fd = shm_open(local_shmem_name, O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
         perror("Error creating or accessing shared memory");
         return -1;
     }
 
-    // Set the size of the shared memory object
+    // set the size of the shared memory object
     if (ftruncate(shm_fd, local_shmem_size) == -1) {
         perror("Error setting shared memory size");
         shm_unlink(local_shmem_name);  // Cleanup on failure
@@ -119,18 +119,18 @@ int mf_init() {
 int mf_destroy() {
     int cleanup_status = 0;
 
-    // Unlink all named semaphores
+    // unlink global named semaphore
     if (sem_unlink("/global_semaphore") == -1) {
         perror("Error unlinking mutex semaphore");
         cleanup_status = -1;
     }
-    // Unmap the shared memory
+    // unmap the shared memory
     if (munmap(shmem_addr, shmem_size) == -1) {
         perror("Error unmapping shared memory");
         cleanup_status = -1;
     }
 
-    // Remove the shared memory segment
+    // remove the shared memory segment
     if (shm_unlink(shmem_name) == -1) {
         perror("Error removing shared memory");
         cleanup_status = -1;
@@ -149,12 +149,12 @@ int mf_connect() {
     }
 
     char line[256], key[256], value[256];
-    char local_shmem_name[256];  // Local variable to hold the shared memory name
-    int local_shmem_size = 0;    // Local variable to hold the shared memory size
+    char local_shmem_name[256];  // local variable to hold the shared memory name
+    int local_shmem_size = 0;    // local variable to hold the shared memory size
 
-    // Read configuration settings
+    // read configuration settings
     while (fgets(line, sizeof(line), config_file)) {
-        if (line[0] == '#' || isspace(line[0])) continue; // Skip comments and blank lines
+        if (line[0] == '#' || isspace(line[0])) continue; // skip comments and blank lines
         
         if (sscanf(line, "%s %s", key, value) != 2) {
             fprintf(stderr, "Malformed line in config file: %s", line);
@@ -170,13 +170,13 @@ int mf_connect() {
     }
     fclose(config_file);
     semaphore_id = sem_open("/global_semaphore", O_CREAT, 0644, 1);
-    // Ensure that the configuration parameters were successfully read
+    // ensure that the configuration parameters were successfully read
     if (local_shmem_name[0] == '\0' || local_shmem_size <= 0) {
         fprintf(stderr, "Configuration incomplete or invalid.\n");
         return -1;
     }
 
-    // Attach to the existing shared memory segment
+    // attach to the existing shared memory segment
     int shm_fd = shm_open(local_shmem_name, O_RDWR, 0666);
     if (shm_fd == -1) {
         perror("Error accessing shared memory");
@@ -186,21 +186,21 @@ int mf_connect() {
     void *temp_addr = mmap(NULL, local_shmem_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (temp_addr == MAP_FAILED) {
         perror("Error mapping shared memory");
-        close(shm_fd);  // Properly close the file descriptor if mmap fails
+        close(shm_fd);  // properly close the file descriptor if mmap fails
         return -1;
     }
 
-    // Correctly update global address and size
+    // correctly update global address and size
     global_shmem_addr = temp_addr;
-    global_shmem_size = local_shmem_size;  // Ensure the global size is updated to reflect the actual mapped size
+    global_shmem_size = local_shmem_size;  // ensure the global size is updated to reflect the actual mapped size
 
-    shmem_addr = global_shmem_addr;  // Update the local pointer for internal use
-    shmem_size = global_shmem_size;  // Update the local size for internal use
+    shmem_addr = global_shmem_addr;  // update the local pointer for internal use
+    shmem_size = global_shmem_size;  // update the local size for internal use
 
-    // Initialize metadata pointer
+    // initialize metadata pointer
     shmem_metadata = (shmem_metadata_t *)global_shmem_addr;
 
-    // It's good practice to close the file descriptor after successful mmap
+    // close the file descriptor after successful mmap
     close(shm_fd);
 
     printf("MFCONNECT Shared Memory Address: %p, Size: %d\n", global_shmem_addr, global_shmem_size);
@@ -209,7 +209,6 @@ int mf_connect() {
 }
 
 int mf_disconnect() {
-    // Assuming you have stored these as global or static to access here
     extern void *global_shmem_addr;  // Pointer to the shared memory
     extern int global_shmem_size;    // Size of the shared memory
     extern int shm_fd;               // File descriptor for the shared memory
@@ -229,17 +228,17 @@ int mf_disconnect() {
     // Optionally, here you would also decrement a count of connected processes
     // and only call mf_destroy() if it's the last one.
     // This part depends on whether you are keeping track of active processes.
-
+    shmem_metadata->num_queues--;
     return 0;
 }
 
 int mf_create(char *mqname, int mqsize) {
     printf("mf create starts..\n");
 
-    // Acquire the global semaphore to ensure exclusive access to the shared memory
+    // acquire the global semaphore to ensure access to the shared memory
     sem_wait(semaphore_id);
 
-    // Validation of mqsize (converted from KB to bytes for internal calculation)
+    // validation of mqsize (converted from KB to bytes for internal calculation)
     int buffer_size = mqsize * 1024; // mqsize specified in KB, converted to bytes
     if (mqsize < MIN_MQSIZE || mqsize > MAX_MQSIZE || buffer_size % 4096 != 0) {
         fprintf(stderr, "Queue size %d KB is out of bounds or not a multiple of 4KB.\n", mqsize);
@@ -247,7 +246,7 @@ int mf_create(char *mqname, int mqsize) {
         return -1;
     }
 
-    // Check if there is enough space left in the shared memory
+    // check if there is enough space left in the shared memory
     size_t offset = sizeof(shmem_metadata_t) + (shmem_metadata->num_queues * sizeof(mf_queue_t));
     if (offset + sizeof(mf_queue_t) + buffer_size > global_shmem_size) {
         fprintf(stderr, "Not enough space in shared memory to create a new message queue.\n");
@@ -255,7 +254,7 @@ int mf_create(char *mqname, int mqsize) {
         return -1;
     }
 
-    // Setup the new queue at the calculated offset
+    // setup the new queue at the calculated offset
     mf_queue_t *new_queue = (mf_queue_t *)((char *)global_shmem_addr + offset);
     strncpy(new_queue->name, mqname, MAX_MQNAMESIZE - 1);
     new_queue->name[MAX_MQNAMESIZE - 1] = '\0';  // Ensure null termination
@@ -364,24 +363,36 @@ int mf_send(int qid, void *bufptr, int datalen) {
     int total_size = datalen + sizeof(int);  // Total size to store length + data
     int next_in = (queue->in + total_size) % queue->size;
 
-    if ((next_in == queue->out) || (queue->size - queue->in < total_size && queue->out <= queue->in)) {
+    if ((next_in == queue->out) || (queue->size - queue->in < total_size && queue->out < queue->in)) {
         sem_post(semaphore_id);
+        printf("space exceeded!\n");
         return -1; // Not enough space
     }
 
     // Store message length first
     char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
-    memcpy(queue_buffer + queue->in, &datalen, sizeof(int));
-    queue->in = (queue->in + sizeof(int)) % queue->size;
+    if (queue->in + sizeof(int) > queue->size) {  // Check wrap-around for length
+        memcpy(queue_buffer + queue->in, &datalen, queue->size - queue->in);  // Part before wrap
+        memcpy(queue_buffer, ((char*)&datalen) + (queue->size - queue->in), sizeof(int) - (queue->size - queue->in));  // Part after wrap
+        queue->in = sizeof(int) - (queue->size - queue->in);
+    } else {
+        memcpy(queue_buffer + queue->in, &datalen, sizeof(int));
+        queue->in = (queue->in + sizeof(int)) % queue->size;
+    }
 
     // Store message data
-    memcpy(queue_buffer + queue->in, bufptr, datalen);
-    queue->in = (queue->in + datalen) % queue->size;
+    if (queue->in + datalen > queue->size) {  // Check wrap-around for data
+        memcpy(queue_buffer + queue->in, bufptr, queue->size - queue->in);  // Part before wrap
+        memcpy(queue_buffer, ((char*)bufptr) + (queue->size - queue->in), datalen - (queue->size - queue->in));  // Part after wrap
+        queue->in = datalen - (queue->size - queue->in);
+    } else {
+        memcpy(queue_buffer + queue->in, bufptr, datalen);
+        queue->in = (queue->in + datalen) % queue->size;
+    }
 
     sem_post(semaphore_id); // Release the global semaphore
     return 0;
 }
-
 int mf_recv(int qid, void *bufptr, int bufsize) {
     sem_wait(semaphore_id);  // Synchronize access
 
@@ -394,20 +405,21 @@ int mf_recv(int qid, void *bufptr, int bufsize) {
     // Read the length of the next message
     int msg_len;
     char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
-    memcpy(&msg_len, queue_buffer + queue->out, sizeof(int));
-
-    if (msg_len > bufsize) {
-        sem_post(semaphore_id);
-        return -1;  // Buffer too small for the next message
+    if (queue->out + sizeof(int) > queue->size) {  // Wrap-around case for length
+        int first_part = queue->size - queue->out;
+        memcpy(&msg_len, queue_buffer + queue->out, first_part);  // Part before wrap
+        memcpy(((char*)&msg_len) + first_part, queue_buffer, sizeof(int) - first_part);  // Part after wrap
+    } else {
+        memcpy(&msg_len, queue_buffer + queue->out, sizeof(int));
     }
 
     int start_data = (queue->out + sizeof(int)) % queue->size;  // Start of message data
-    if (start_data + msg_len <= queue->size) {  // No wrap-around
-        memcpy(bufptr, queue_buffer + start_data, msg_len);
-    } else {  // Handle wrap-around
+    if (start_data + msg_len > queue->size) {  // Handle wrap-around
         int first_part_size = queue->size - start_data;
         memcpy(bufptr, queue_buffer + start_data, first_part_size);
         memcpy((char *)bufptr + first_part_size, queue_buffer, msg_len - first_part_size);
+    } else {
+        memcpy(bufptr, queue_buffer + start_data, msg_len);
     }
 
     queue->out = (start_data + msg_len) % queue->size;  // Move the out pointer past the message
@@ -415,8 +427,6 @@ int mf_recv(int qid, void *bufptr, int bufsize) {
     sem_post(semaphore_id);
     return msg_len;  // Return the length of the message received
 }
-
-
 
 int mf_print()
 {
