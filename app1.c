@@ -18,7 +18,7 @@ char *mqname1 = "msgqueue1";
 int 
 main(int argc, char **argv)
 {
-    int ret,  i, qid;
+    int ret, qid;
     char sendbuffer[MAX_DATALEN];
     int n_sent, n_received;
     char recvbuffer[MAX_DATALEN];
@@ -54,7 +54,7 @@ main(int argc, char **argv)
             n_sent = rand() % MAX_DATALEN;
             ret = mf_send (qid, (void *) sendbuffer, n_sent);
             printf ("app sent message, datalen=%d\n", n_sent);
-            printf("sentcount = %d \n", sentcount);
+            //printf("sentcount = %d \n", sentcount);
             sentcount++;
             if (sentcount == totalcount)
                 break;

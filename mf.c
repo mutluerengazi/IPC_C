@@ -142,19 +142,22 @@ int mf_destroy() {
     int cleanup_status = 0;
 
     // Unlink all named semaphores
-    if (sem_unlink("enqueue_semaphore") == -1) {
+    if (sem_unlink("/sem_enqueue") == -1) {
         perror("Error unlinking enqueue semaphore");
         cleanup_status = -1;  // Note the error but continue cleanup
     }
-    if (sem_unlink("dequeue_semaphore") == -1) {
+    if (sem_unlink("/sem_dequeue") == -1) {
         perror("Error unlinking dequeue semaphore");
         cleanup_status = -1;
     }
-    if (sem_unlink("mutex_semaphore") == -1) {
+    if (sem_unlink("/sem_mutex") == -1) {
         perror("Error unlinking mutex semaphore");
         cleanup_status = -1;
     }
-
+    if (sem_unlink("/global_semaphore") == -1) {
+        perror("Error unlinking mutex semaphore");
+        cleanup_status = -1;
+    }
     // Unmap the shared memory
     if (munmap(shmem_addr, shmem_size) == -1) {
         perror("Error unmapping shared memory");
@@ -313,14 +316,10 @@ int mf_create(char *mqname, int mqsize) {
     new_queue->out = 0;
     new_queue->ref_count = 0;
 
-    // Initialize semaphores for the new queue
-    char sem_name[256];
-    snprintf(sem_name, sizeof(sem_name), "enqueue_%s", mqname);
-    new_queue->sem_enqueue = sem_open(sem_name, O_CREAT, 0644, mqsize); // Assuming mqsize is the initial semaphore value
-    snprintf(sem_name, sizeof(sem_name), "dequeue_%s", mqname);
-    new_queue->sem_dequeue = sem_open(sem_name, O_CREAT, 0644, mqsize);
-    snprintf(sem_name, sizeof(sem_name), "mutex_%s", mqname);
-    new_queue->mutex = sem_open(sem_name, O_CREAT, 0644, 1);
+    // Initialize semaphores for the new queue sem_open("/global_semaphore", O_CREAT, 0644, 1);
+    new_queue->sem_enqueue = sem_open("/sem_enqueue", O_CREAT, 0644, 1); // Assuming mqsize is the initial semaphore value
+    new_queue->sem_dequeue = sem_open("/sem_dequeue", O_CREAT, 0644, 1);
+    new_queue->mutex = sem_open("/sem_mutex", O_CREAT, 0644, 1);
 
     // Check semaphore initialization success
     if (new_queue->sem_enqueue == SEM_FAILED || new_queue->sem_dequeue == SEM_FAILED || new_queue->mutex == SEM_FAILED) {
@@ -333,6 +332,9 @@ int mf_create(char *mqname, int mqsize) {
     printf("mf create shmem_metadata->num_queues= %d \n",shmem_metadata->num_queues);
     // Release the global semaphore
     sem_post(semaphore_id);
+    sem_post(new_queue->sem_enqueue);
+    sem_post(new_queue->sem_dequeue);
+    sem_post(new_queue->mutex);
     printf ("mf create ends..\n");
     return 0;
 }
@@ -419,103 +421,51 @@ int mf_close(int qid) {
     return 0;
 }
 
-
 int mf_send(int qid, void *bufptr, int datalen) {
-    if (qid < 0 || qid >= shmem_metadata->num_queues || datalen <= 0 || datalen > MAX_DATALEN) {
-        return -1;  // Validate queue ID and data length
-    }
-   
-    printf("mf_send started\n");
-
-    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t) + qid * sizeof(mf_queue_t));
-
-    sem_wait(queue->sem_enqueue);  // Wait for space to become available in the queue
-    printf("mf_send passed sem_enqueue\n");
-    sem_wait(queue->mutex);  // Acquire mutex to ensure exclusive access to queue modifications
-   
-
-    // Calculate total data length including the size prefix and check for space availability
-    int total_data_len = datalen + sizeof(int); // Total length including the size prefix
-    int next_in = (queue->in + total_data_len) % queue->size;
-    if (total_data_len > queue->size || 
-       ((queue->in < queue->out) && (next_in >= queue->out && next_in < queue->in)) ||
-       ((queue->in >= queue->out) && (next_in < queue->in && queue->out <= next_in))) {
-        sem_post(queue->mutex);  // Release mutex
-        sem_post(queue->sem_enqueue);  // Release the enqueue semaphore since we are not enqueueing
+    if (datalen > MAX_DATALEN || datalen <= 0) {
+        fprintf(stderr, "Invalid data length.\n");
         return -1;
     }
 
-    // Store the message length at the current 'in' position
-    memcpy(queue->buffer + queue->in, &datalen, sizeof(int));
-    queue->in = (queue->in + sizeof(int)) % queue->size;
+    sem_wait(semaphore_id); // Lock the global semaphore
 
-    // Store the message data, handling potential wrap-around
-    int first_part_size = min(datalen, queue->size - queue->in);
-    memcpy(queue->buffer + queue->in, bufptr, first_part_size);
-    if (datalen > first_part_size) {  // Handle wrap-around
-        memcpy(queue->buffer, (char *)bufptr + first_part_size, datalen - first_part_size);
+    mf_queue_t *queue = (mf_queue_t *)((char *)global_shmem_addr + sizeof(shmem_metadata_t) + (qid - 1) * sizeof(mf_queue_t));
+    int next_in = (queue->in + datalen) % queue->size;
+
+    if ((next_in == queue->out) || (queue->size - queue->in < datalen && queue->out <= queue->in)) {
+        sem_post(semaphore_id);
+        return -1; // Not enough space
     }
+
+    char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
+    memcpy(queue_buffer + queue->in, bufptr, datalen);
     queue->in = next_in;
 
-    sem_post(queue->mutex);  // Release mutex
-    sem_post(queue->sem_dequeue);  // Signal that a new item is available in the queue
-
+    sem_post(semaphore_id); // Release the global semaphore
     return 0;
 }
 
-
-
-
-
 int mf_recv(int qid, void *bufptr, int bufsize) {
-    printf("Receiving with qid: %d, num_queues: %d, bufsize: %d\n", qid, shmem_metadata->num_queues, bufsize);
-    if (qid < 0) {
-        printf("Error: Invalid queue ID, qid < 0\n");
-        return -1;
-    } else if (bufsize < MIN_DATALEN) {
-        printf("Error: Buffer size too small, bufsize < MIN_DATALEN (%d < %d)\n", bufsize, MIN_DATALEN);
+    if (bufsize < MIN_DATALEN) {
+        fprintf(stderr, "Buffer size too small.\n");
         return -1;
     }
 
-    mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + sizeof(shmem_metadata_t) + qid * sizeof(mf_queue_t));
+    sem_wait(semaphore_id); // Lock the global semaphore
 
-    sem_wait(queue->sem_dequeue);  // Wait until there's a message to receive
-    sem_wait(queue->mutex);  // Lock the queue for exclusive access
-
-    // Read the message length safely considering wrap-around at the buffer end
-    int msg_len;
-    if (queue->out + sizeof(int) > queue->size) {  // Handle wrap-around of the size field
-        int first_part_size = queue->size - queue->out;
-        memcpy(&msg_len, queue->buffer + queue->out, first_part_size);
-        memcpy((char *)&msg_len + first_part_size, queue->buffer, sizeof(int) - first_part_size);
-        queue->out = (sizeof(int) - first_part_size) % queue->size;
-    } else {
-        memcpy(&msg_len, queue->buffer + queue->out, sizeof(int));
-        queue->out = (queue->out + sizeof(int)) % queue->size;
+    mf_queue_t *queue = (mf_queue_t *)((char *)global_shmem_addr + sizeof(shmem_metadata_t) + (qid - 1) * sizeof(mf_queue_t));
+    if (queue->out == queue->in) {
+        sem_post(semaphore_id);
+        return -1; // Queue empty
     }
 
-    if (bufsize < msg_len) {  // Ensure the user buffer is large enough
-        printf("second error at if check \n");
-        sem_post(queue->mutex);
-        sem_post(queue->sem_dequeue);  // Re-signal dequeue since message is not read
-        return -1;
-    }
+    int next_out = (queue->out + bufsize) % queue->size;
+    char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
+    memcpy(bufptr, queue_buffer + queue->out, bufsize);
+    queue->out = next_out;
 
-    // Read the message data considering potential wrap-around
-    if (queue->out + msg_len > queue->size) {  // Handle wrap-around of the data
-        int first_part_size = queue->size - queue->out;
-        memcpy(bufptr, queue->buffer + queue->out, first_part_size);
-        memcpy((char *)bufptr + first_part_size, queue->buffer, msg_len - first_part_size);
-        queue->out = (msg_len - first_part_size) % queue->size;
-    } else {
-        memcpy(bufptr, queue->buffer + queue->out, msg_len);
-        queue->out = (queue->out + msg_len) % queue->size;
-    }
-
-    sem_post(queue->mutex);
-    sem_post(queue->sem_enqueue);  // Signal space available for new messages
-
-    return msg_len;
+    sem_post(semaphore_id); // Release the global semaphore
+    return bufsize;
 }
 
 
