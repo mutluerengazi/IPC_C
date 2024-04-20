@@ -35,10 +35,7 @@ typedef struct {
     int size;                      // Size of the queue buffer (in bytes)
     int in;                        // Index for next enqueue (write)
     int out;                       // Index for next dequeue (read)
-    sem_t *sem_enqueue;             // Semaphore for enqueue operations
-    sem_t *sem_dequeue;             // Semaphore for dequeue operations
-    sem_t *mutex;                   // Mutex for accessing queue state
-    int ref_count;                 // Reference count for open/close operations
+   int ref_count;                 // Reference count for open/close operations
     char buffer[];                 // Flexible array member for the queue buffer
 } mf_queue_t;
 
