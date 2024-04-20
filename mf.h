@@ -1,5 +1,6 @@
 #ifndef _MF_H_
 #define _MF_H_
+#define min(a, b) ((a) < (b) ? (a) : (b))
 
 //You should not change this file. It is the interface of the MF library.
 
@@ -40,6 +41,12 @@ typedef struct {
     int ref_count;                 // Reference count for open/close operations
     char buffer[];                 // Flexible array member for the queue buffer
 } mf_queue_t;
+
+// Shared memory layout structure
+typedef struct {
+    int num_queues;
+    // Add other metadata fields as needed
+} shmem_metadata_t;
 
 extern void *global_shmem_addr;  // Pointer to the shared memory
 extern int global_shmem_size;    // Size of the shared memory
