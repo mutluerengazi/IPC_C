@@ -254,7 +254,7 @@ int mf_create(char *mqname, int mqsize) {
         return -1;
     }
 
-    // setup the new queue at the calculated offset
+    // setup  new queue at the calculated offset
     mf_queue_t *new_queue = (mf_queue_t *)((char *)global_shmem_addr + offset);
     strncpy(new_queue->name, mqname, MAX_MQNAMESIZE - 1);
     new_queue->name[MAX_MQNAMESIZE - 1] = '\0';  // Ensure null termination
@@ -263,11 +263,11 @@ int mf_create(char *mqname, int mqsize) {
     new_queue->out = 0;
     new_queue->ref_count = 0;
 
-    // Increment the number of queues
+    // increment the number of queues
     shmem_metadata->num_queues++;
     printf("mf create: Queue created successfully. Total queues: %d\n", shmem_metadata->num_queues);
 
-    sem_post(semaphore_id);  // Release the global semaphore
+    sem_post(semaphore_id);  // Release global semaphore
     return 0;  // Success
 }
 
@@ -293,9 +293,6 @@ int mf_remove(char *mqname) {
         return -1;
     }
 
-    // Check if the queue is still in use (reference count > 0)
-    // Implement the reference count checking logic here
-
     // Remove the queue by shifting the remaining queues in memory
     size_t remaining_bytes = (char *)shmem_addr + shmem_size - (char *)queue_to_remove - sizeof(mf_queue_t);
     memmove(queue_to_remove, (char *)queue_to_remove + sizeof(mf_queue_t), remaining_bytes);
@@ -320,12 +317,12 @@ int mf_open(char *mqname) {
         if (strcmp(queue->name, mqname) == 0) {
             sem_post(semaphore_id);
             printf("open qid: %d \n", i + 1);
-            return i + 1;  // Return the index (qid) of the found queue
+            return i + 1;  // return the index (qid) of the found queue
         }
     }
     printf("mf open starts... \n");
     sem_post(semaphore_id);
-    return -1;  // Queue not found
+    return -1;  // queue not found
 }
 
 int mf_close(int qid) {
@@ -342,9 +339,6 @@ int mf_close(int qid) {
     }
 
     mf_queue_t *queue = (mf_queue_t *)((char *)shmem_addr + offset);
-
-    // Decrement the reference count for the queue
-    // Implement the reference count decrementing logic here
 
     // Release the semaphore
     sem_post(semaphore_id);
@@ -369,28 +363,28 @@ int mf_send(int qid, void *bufptr, int datalen) {
         return -1; // Not enough space
     }
 
-    // Store message length first
+    // store the message length first
     char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
     if (queue->in + sizeof(int) > queue->size) {  // Check wrap-around for length
-        memcpy(queue_buffer + queue->in, &datalen, queue->size - queue->in);  // Part before wrap
-        memcpy(queue_buffer, ((char*)&datalen) + (queue->size - queue->in), sizeof(int) - (queue->size - queue->in));  // Part after wrap
+        memcpy(queue_buffer + queue->in, &datalen, queue->size - queue->in);  // part before wrap
+        memcpy(queue_buffer, ((char*)&datalen) + (queue->size - queue->in), sizeof(int) - (queue->size - queue->in));  // part after wrap
         queue->in = sizeof(int) - (queue->size - queue->in);
     } else {
         memcpy(queue_buffer + queue->in, &datalen, sizeof(int));
         queue->in = (queue->in + sizeof(int)) % queue->size;
     }
 
-    // Store message data
-    if (queue->in + datalen > queue->size) {  // Check wrap-around for data
-        memcpy(queue_buffer + queue->in, bufptr, queue->size - queue->in);  // Part before wrap
-        memcpy(queue_buffer, ((char*)bufptr) + (queue->size - queue->in), datalen - (queue->size - queue->in));  // Part after wrap
+    // store message data
+    if (queue->in + datalen > queue->size) {  // check wrap-around for data
+        memcpy(queue_buffer + queue->in, bufptr, queue->size - queue->in);  // part before wrap
+        memcpy(queue_buffer, ((char*)bufptr) + (queue->size - queue->in), datalen - (queue->size - queue->in));  // part after wrap
         queue->in = datalen - (queue->size - queue->in);
     } else {
         memcpy(queue_buffer + queue->in, bufptr, datalen);
         queue->in = (queue->in + datalen) % queue->size;
     }
 
-    sem_post(semaphore_id); // Release the global semaphore
+    sem_post(semaphore_id); // release the global semaphore
     return 0;
 }
 int mf_recv(int qid, void *bufptr, int bufsize) {
@@ -402,19 +396,19 @@ int mf_recv(int qid, void *bufptr, int bufsize) {
         return -1;  // Queue empty, nothing to receive
     }
 
-    // Read the length of the next message
+    // read the length of the next message
     int msg_len;
     char *queue_buffer = (char *)queue + sizeof(mf_queue_t);
-    if (queue->out + sizeof(int) > queue->size) {  // Wrap-around case for length
+    if (queue->out + sizeof(int) > queue->size) {  // wrap-around case for length
         int first_part = queue->size - queue->out;
-        memcpy(&msg_len, queue_buffer + queue->out, first_part);  // Part before wrap
-        memcpy(((char*)&msg_len) + first_part, queue_buffer, sizeof(int) - first_part);  // Part after wrap
+        memcpy(&msg_len, queue_buffer + queue->out, first_part);  // part before wrap
+        memcpy(((char*)&msg_len) + first_part, queue_buffer, sizeof(int) - first_part);  // part after wrap
     } else {
         memcpy(&msg_len, queue_buffer + queue->out, sizeof(int));
     }
 
-    int start_data = (queue->out + sizeof(int)) % queue->size;  // Start of message data
-    if (start_data + msg_len > queue->size) {  // Handle wrap-around
+    int start_data = (queue->out + sizeof(int)) % queue->size;  // start of message data
+    if (start_data + msg_len > queue->size) {  // handle wrap-around
         int first_part_size = queue->size - start_data;
         memcpy(bufptr, queue_buffer + start_data, first_part_size);
         memcpy((char *)bufptr + first_part_size, queue_buffer, msg_len - first_part_size);
@@ -422,10 +416,10 @@ int mf_recv(int qid, void *bufptr, int bufsize) {
         memcpy(bufptr, queue_buffer + start_data, msg_len);
     }
 
-    queue->out = (start_data + msg_len) % queue->size;  // Move the out pointer past the message
+    queue->out = (start_data + msg_len) % queue->size;  // move the out pointer past the message
 
     sem_post(semaphore_id);
-    return msg_len;  // Return the length of the message received
+    return msg_len;  // return the length of the message received
 }
 
 int mf_print()
